@@ -30,11 +30,10 @@ func main() {
 	var params string
 	var urlparams string
 
-	dir := UserHomeDir()
-	// fmt.Println(dir)
+	dir := UserHomeDir()	
 
 	app := cli.NewApp()
-	app.Version = "1.0.0"
+	app.Version = "1.0.1"
 	app.Name = "tcmd"
 	app.Usage = "Run commands on computers in your TRIGGERcmd account"
 
@@ -59,29 +58,25 @@ func main() {
 	app.Action = func(c *cli.Context) error {
 		if trigger == "" {
 			fmt.Println("No trigger specified.  Use --help or -h for help.")
-		} else {
-			// fmt.Println(strings.Join("Trigger: ", trigger))
+		} else {			
 			t := []string{urlparams, "&trigger=", trigger}
 			urlparams = strings.Join(t, "")
 
 			if computer == "" {
 				// fmt.Println("No computer specified.  Using default computer.")
-			} else {
-				// fmt.Println(strings.Join("Computer: ", computer))
+			} else {				
 				s := []string{urlparams, "&computer=", computer}
 				urlparams = strings.Join(s, "")
 			}
 
 			if params == "" {
 				// fmt.Println("No parameters specified.")
-			} else {
-				// fmt.Println(strings.Join("Parameters: ", params))
+			} else {				
 				s := []string{urlparams, "&params=", params}
 				urlparams = strings.Join(s, "")
 			}
 
-			p := filepath.Join(dir, "/.TRIGGERcmdData/token.tkn")
-			// fmt.Println(p)
+			p := filepath.Join(dir, "/.TRIGGERcmdData/token.tkn")			
 
 			b, err := ioutil.ReadFile(p) // just pass the file name
 			if err != nil {
@@ -108,17 +103,17 @@ func main() {
 	}
 
 	cli.AppHelpTemplate = `NAME:
-    {{.Name}} - {{.Usage}}
-  USAGE:
-    {{.HelpName}} {{if .VisibleFlags}}[options]{{end}}
-    {{if len .Authors}}
-  AUTHOR:
-    {{range .Authors}}{{ . }}{{end}}
-    {{end}}{{if .Commands}}
-  OPTIONS:
-    {{range .VisibleFlags}}{{.}}
-    {{end}}{{end}}
-  `
+		{{.Name}} - {{.Usage}}
+	USAGE:
+		{{.HelpName}} {{if .VisibleFlags}}[options]{{end}}
+		{{if len .Authors}}
+	AUTHOR:
+		{{range .Authors}}{{ . }}{{end}}
+		{{end}}{{if .Commands}}
+	OPTIONS:
+		{{range .VisibleFlags}}{{.}}
+		{{end}}{{end}}
+	`
 
 	err := app.Run(os.Args)
 	if err != nil {
