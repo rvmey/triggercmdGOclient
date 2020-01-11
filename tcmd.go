@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,7 +31,7 @@ func main() {
 	var params string
 	var urlparams string
 
-	dir := UserHomeDir()	
+	dir := UserHomeDir()
 
 	app := cli.NewApp()
 	app.Version = "1.0.1"
@@ -58,25 +59,25 @@ func main() {
 	app.Action = func(c *cli.Context) error {
 		if trigger == "" {
 			fmt.Println("No trigger specified.  Use --help or -h for help.")
-		} else {			
+		} else {
 			t := []string{urlparams, "&trigger=", trigger}
 			urlparams = strings.Join(t, "")
 
 			if computer == "" {
 				// fmt.Println("No computer specified.  Using default computer.")
-			} else {				
+			} else {
 				s := []string{urlparams, "&computer=", computer}
 				urlparams = strings.Join(s, "")
 			}
 
 			if params == "" {
 				// fmt.Println("No parameters specified.")
-			} else {				
-				s := []string{urlparams, "&params=", params}
+			} else {
+				s := []string{urlparams, "&params=", url.PathEscape(params)}
 				urlparams = strings.Join(s, "")
 			}
 
-			p := filepath.Join(dir, "/.TRIGGERcmdData/token.tkn")			
+			p := filepath.Join(dir, "/.TRIGGERcmdData/token.tkn")
 
 			b, err := ioutil.ReadFile(p) // just pass the file name
 			if err != nil {
