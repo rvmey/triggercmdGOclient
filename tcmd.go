@@ -34,7 +34,7 @@ func main() {
 	dir := UserHomeDir()
 
 	app := cli.NewApp()
-	app.Version = "1.0.1"
+	app.Version = "1.0.2"
 	app.Name = "tcmd"
 	app.Usage = "Run commands on computers in your TRIGGERcmd account"
 
@@ -60,13 +60,13 @@ func main() {
 		if trigger == "" {
 			fmt.Println("No trigger specified.  Use --help or -h for help.")
 		} else {
-			t := []string{urlparams, "&trigger=", trigger}
+			t := []string{urlparams, "&trigger=", url.PathEscape(trigger)}
 			urlparams = strings.Join(t, "")
 
 			if computer == "" {
 				// fmt.Println("No computer specified.  Using default computer.")
 			} else {
-				s := []string{urlparams, "&computer=", computer}
+				s := []string{urlparams, "&computer=", url.PathEscape(computer)}
 				urlparams = strings.Join(s, "")
 			}
 
