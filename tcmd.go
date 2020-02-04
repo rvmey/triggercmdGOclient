@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -26,6 +27,7 @@ func UserHomeDir() string {
 }
 
 func main() {
+	var list bool
 	var trigger string
 	var computer string
 	var params string
@@ -34,7 +36,7 @@ func main() {
 	dir := UserHomeDir()
 
 	app := cli.NewApp()
-	app.Version = "1.0.2"
+	app.Version = "1.0.3"
 	app.Name = "tcmd"
 	app.Usage = "Run commands on computers in your TRIGGERcmd account"
 
@@ -54,40 +56,25 @@ func main() {
 			Usage:       "Any parameters you want to add to the remote command",
 			Destination: &params,
 		},
+		cli.BoolFlag{
+			Name:        "list, l",
+			Usage:       "List your commands",
+			Destination: &list,
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
-		if trigger == "" {
-			fmt.Println("No trigger specified.  Use --help or -h for help.")
-		} else {
-			t := []string{urlparams, "&trigger=", url.PathEscape(trigger)}
-			urlparams = strings.Join(t, "")
+		p := filepath.Join(dir, "/.TRIGGERcmdData/token.tkn")
 
-			if computer == "" {
-				// fmt.Println("No computer specified.  Using default computer.")
-			} else {
-				s := []string{urlparams, "&computer=", url.PathEscape(computer)}
-				urlparams = strings.Join(s, "")
-			}
+		b, err := ioutil.ReadFile(p) // just pass the file name
+		if err != nil {
+			fmt.Print(err)
+		}
 
-			if params == "" {
-				// fmt.Println("No parameters specified.")
-			} else {
-				s := []string{urlparams, "&params=", url.PathEscape(params)}
-				urlparams = strings.Join(s, "")
-			}
+		token := string(b) // convert content to a 'string'
 
-			p := filepath.Join(dir, "/.TRIGGERcmdData/token.tkn")
-
-			b, err := ioutil.ReadFile(p) // just pass the file name
-			if err != nil {
-				fmt.Print(err)
-			}
-
-			token := string(b) // convert content to a 'string'
-
-			s := []string{"https://www.triggercmd.com/api/run/triggersave?token=", token, urlparams}
-			// fmt.Println(strings.Join(s, ""))
+		if list {
+			s := []string{"https://www.triggercmd.com/api/command/list?token=", token}
 
 			resp, err := http.Get(strings.Join(s, ""))
 			if err != nil {
@@ -98,7 +85,68 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			fmt.Printf("%s", body)
+
+			var outputline string
+			var result map[string]interface{}
+			json.Unmarshal([]byte(body), &result)
+			commands := result["records"].([]interface{})
+
+			for key, value := range commands {
+				if value.(map[string]interface{})["allowParams"] == true {
+					t := []string{
+						"tcmd --computer \"",
+						value.(map[string]interface{})["computer"].(map[string]interface{})["name"].(string),
+						"\" --trigger \"",
+						value.(map[string]interface{})["name"].(string),
+						"\" --params \"(your parameters)\""}
+					outputline = strings.Join(t, "")
+					fmt.Println(key, outputline)
+				} else {
+					t := []string{
+						"tcmd --computer \"",
+						value.(map[string]interface{})["computer"].(map[string]interface{})["name"].(string),
+						"\" --trigger \"",
+						value.(map[string]interface{})["name"].(string),
+						"\""}
+					outputline = strings.Join(t, "")
+					fmt.Println(key, outputline)
+				}
+			}
+		} else {
+			if trigger == "" {
+				fmt.Println("No trigger specified.  Use --help or -h for help.")
+			} else {
+				t := []string{urlparams, "&trigger=", url.PathEscape(trigger)}
+				urlparams = strings.Join(t, "")
+
+				if computer == "" {
+					// fmt.Println("No computer specified.  Using default computer.")
+				} else {
+					s := []string{urlparams, "&computer=", url.PathEscape(computer)}
+					urlparams = strings.Join(s, "")
+				}
+
+				if params == "" {
+					// fmt.Println("No parameters specified.")
+				} else {
+					s := []string{urlparams, "&params=", url.PathEscape(params)}
+					urlparams = strings.Join(s, "")
+				}
+
+				s := []string{"https://www.triggercmd.com/api/run/triggersave?token=", token, urlparams}
+				// fmt.Println(strings.Join(s, ""))
+
+				resp, err := http.Get(strings.Join(s, ""))
+				if err != nil {
+					panic(err)
+				}
+				defer resp.Body.Close()
+				body, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					panic(err)
+				}
+				fmt.Printf("%s", body)
+			}
 		}
 		return nil
 	}
