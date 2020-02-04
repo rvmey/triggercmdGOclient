@@ -26,3 +26,5 @@ foreach ($os in $oses) {
         }        
     }
 }
+Copy-Item .\binaries\tcmd-windows-amd64.exe .\binaries\tcmd.exe
+Copy-Item .\binaries\tcmd-windows-386.exe .\binaries\tcmd_32bit.exe
