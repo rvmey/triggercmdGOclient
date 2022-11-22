@@ -48,6 +48,16 @@ func main() {
 
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
+			Name:        "panel, panel",
+			Usage:       "Name of the panel you want to use",
+			Destination: &panel,
+		},
+		cli.StringFlag{
+			Name:        "button, b",
+			Usage:       "Name of the panel button to \"press\"",
+			Destination: &panel,
+		},
+		cli.StringFlag{
 			Name:        "trigger, t",
 			Usage:       "Trigger name of the command you want to run",
 			Destination: &trigger,
