@@ -31,8 +31,11 @@ NAME:
     --trigger value, -t value   Trigger name of the command you want to run
     --computer value, -c value  Name of the computer (leave blank for your default computer)
     --params value, -p value    Any parameters you want to add to the remote command
-    --pair                      Login using a pair code
+    --panel value, -P value     Name of the panel you want to use
+    --button value, -b value    Name of the panel button to "press"
     --list, -l                  List your commands
+    --listpanels, -L            List your panels
+    --pair                      Login using a pair code
     --help, -h                  show help
     --version, -v               print the version
 ```
