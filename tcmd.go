@@ -34,6 +34,9 @@ func main() {
 	var computer string
 	var params string
 	var urlparams string
+	var panel string
+	var button string
+	var listpanels bool
 
 	var pairResult map[string]interface{}
 	var pairLookupResult map[string]interface{}
@@ -42,7 +45,7 @@ func main() {
 	dir := UserHomeDir()
 
 	app := cli.NewApp()
-	app.Version = "1.0.5"
+	app.Version = "1.0.6"
 	app.Name = "tcmd"
 	app.Usage = "Run commands on computers in your TRIGGERcmd account"
 
@@ -62,15 +65,30 @@ func main() {
 			Usage:       "Any parameters you want to add to the remote command",
 			Destination: &params,
 		},
-		cli.BoolFlag{
-			Name:        "pair",
-			Usage:       "Login using a pair code",
-			Destination: &pair,
+		cli.StringFlag{
+			Name:        "panel, P",
+			Usage:       "Name of the panel you want to use",
+			Destination: &panel,
+		},
+		cli.StringFlag{
+			Name:        "button, b",
+			Usage:       "Name of the panel button to \"press\"",
+			Destination: &button,
 		},
 		cli.BoolFlag{
 			Name:        "list, l",
 			Usage:       "List your commands",
 			Destination: &list,
+		},
+		cli.BoolFlag{
+			Name:        "listpanels, L",
+			Usage:       "List your panels",
+			Destination: &listpanels,
+		},
+		cli.BoolFlag{
+			Name:        "pair",
+			Usage:       "Login using a pair code",
+			Destination: &pair,
 		},
 	}
 
@@ -197,28 +215,8 @@ func main() {
 						}
 					}
 				} else {
-					if trigger == "" {
-						fmt.Println("No trigger specified.  Use --help or -h for help.")
-					} else {
-						t := []string{urlparams, "&trigger=", url.PathEscape(trigger)}
-						urlparams = strings.Join(t, "")
-
-						if computer == "" {
-							// fmt.Println("No computer specified.  Using default computer.")
-						} else {
-							s := []string{urlparams, "&computer=", url.PathEscape(computer)}
-							urlparams = strings.Join(s, "")
-						}
-
-						if params == "" {
-							// fmt.Println("No parameters specified.")
-						} else {
-							s := []string{urlparams, "&params=", url.PathEscape(params)}
-							urlparams = strings.Join(s, "")
-						}
-
-						s := []string{"https://www.triggercmd.com/api/run/triggersave?token=", token, urlparams}
-						// fmt.Println(strings.Join(s, ""))
+					if listpanels {
+						s := []string{"https://triggercmd.com/api/panelbutton/list?token=", token}
 
 						resp, err := http.Get(strings.Join(s, ""))
 						if err != nil {
@@ -229,7 +227,90 @@ func main() {
 						if err != nil {
 							panic(err)
 						}
-						fmt.Printf("%s", body)
+
+						var outputline string
+						var result map[string]interface{}
+						json.Unmarshal([]byte(body), &result)
+						buttons := result["records"].([]interface{})
+
+						for key, value := range buttons {
+							t := []string{
+								"tcmd --panel \"",
+								value.(map[string]interface{})["panel"].(map[string]interface{})["name"].(string),
+								"\" --button \"",
+								value.(map[string]interface{})["name"].(string),
+								"\""}
+							outputline = strings.Join(t, "")
+							fmt.Println(key, outputline)
+						}
+					} else {
+						if panel != "" {
+							if button == "" {
+								fmt.Println("No button specified.  Use --help or -h for help.")
+							} else {
+								t := []string{urlparams, "&button=", url.PathEscape(button)}
+								urlparams = strings.Join(t, "")
+
+								p := []string{urlparams, "&panel=", url.PathEscape(panel)}
+								urlparams = strings.Join(p, "")
+
+								if params == "" {
+									// fmt.Println("No parameters specified.")
+								} else {
+									s := []string{urlparams, "&params=", url.PathEscape(params)}
+									urlparams = strings.Join(s, "")
+								}
+
+								s := []string{"https://www.triggercmd.com/api/panel/trigger?token=", token, urlparams}
+								// fmt.Println(strings.Join(s, ""))
+
+								resp, err := http.Get(strings.Join(s, ""))
+								if err != nil {
+									panic(err)
+								}
+								defer resp.Body.Close()
+								body, err := ioutil.ReadAll(resp.Body)
+								if err != nil {
+									panic(err)
+								}
+								fmt.Printf("%s", body)
+							}
+						} else {
+							if trigger == "" {
+								fmt.Println("No trigger specified.  Use --help or -h for help.")
+							} else {
+								t := []string{urlparams, "&trigger=", url.PathEscape(trigger)}
+								urlparams = strings.Join(t, "")
+
+								if computer == "" {
+									// fmt.Println("No computer specified.  Using default computer.")
+								} else {
+									s := []string{urlparams, "&computer=", url.PathEscape(computer)}
+									urlparams = strings.Join(s, "")
+								}
+
+								if params == "" {
+									// fmt.Println("No parameters specified.")
+								} else {
+									s := []string{urlparams, "&params=", url.PathEscape(params)}
+									urlparams = strings.Join(s, "")
+								}
+
+								s := []string{"https://www.triggercmd.com/api/run/triggersave?token=", token, urlparams}
+								// fmt.Println(strings.Join(s, ""))
+
+								resp, err := http.Get(strings.Join(s, ""))
+								if err != nil {
+									panic(err)
+								}
+								defer resp.Body.Close()
+								body, err := ioutil.ReadAll(resp.Body)
+								if err != nil {
+									panic(err)
+								}
+								fmt.Printf("%s", body)
+							}
+						}
 					}
 				}
 			}
