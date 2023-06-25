@@ -45,7 +45,7 @@ func main() {
 	dir := UserHomeDir()
 
 	app := cli.NewApp()
-	app.Version = "1.0.6"
+	app.Version = "1.0.7"
 	app.Name = "tcmd"
 	app.Usage = "Run commands on computers in your TRIGGERcmd account"
 
@@ -148,7 +148,7 @@ func main() {
 						_, ok := pairLookupResult["token"]
 						if ok {
 							token = fmt.Sprintf("%v", pairLookupResult["token"])
-							err := os.MkdirAll(filepath.Join(dir, "/.TRIGGERcmdData"), os.ModeDir)
+							err := os.MkdirAll(filepath.Join(dir, "/.TRIGGERcmdData"), 0755)
 							if err == nil {
 								tokendata := []byte(token)
 								err := ioutil.WriteFile(p, tokendata, 0700)
