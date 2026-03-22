@@ -49,7 +49,7 @@ func main() {
 	dir := UserHomeDir()
 
 	app := cli.NewApp()
-	app.Version = "1.0.7"
+	app.Version = "1.0.8"
 	app.Name = "tcmd"
 	app.Usage = "Run commands on computers in your TRIGGERcmd account"
 
