@@ -352,7 +352,7 @@ func main() {
 
 // runTUI launches the interactive text user interface.
 func runTUI(token string) error {
-	// Fetch all commands from the API.
+	// Fetch commands.
 	resp, err := http.Get("https://www.triggercmd.com/api/command/list?token=" + token)
 	if err != nil {
 		return fmt.Errorf("failed to fetch commands: %w", err)
@@ -362,22 +362,17 @@ func runTUI(token string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	var cmdResult map[string]interface{}
+	if err := json.Unmarshal(body, &cmdResult); err != nil {
+		return fmt.Errorf("failed to parse commands response: %w", err)
 	}
-	rawCommands, ok := result["records"].([]interface{})
-	if !ok {
-		return fmt.Errorf("unexpected API response format")
-	}
+	rawCommands, _ := cmdResult["records"].([]interface{})
 
 	type Command struct {
 		Name        string
 		Computer    string
 		AllowParams bool
 	}
-
 	var allCommands []Command
 	computerSet := make(map[string]bool)
 	for _, raw := range rawCommands {
@@ -395,33 +390,102 @@ func runTUI(token string) error {
 		allCommands = append(allCommands, Command{Name: cmdName, Computer: compName, AllowParams: allowParams})
 		computerSet[compName] = true
 	}
-
 	computers := make([]string, 0, len(computerSet))
 	for c := range computerSet {
 		computers = append(computers, c)
 	}
 	sort.Strings(computers)
 
+	// Fetch panel buttons.
+	resp2, err := http.Get("https://triggercmd.com/api/panelbutton/list?token=" + token)
+	if err != nil {
+		return fmt.Errorf("failed to fetch panels: %w", err)
+	}
+	defer resp2.Body.Close()
+	body2, err := ioutil.ReadAll(resp2.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read panels response: %w", err)
+	}
+	var panelResult map[string]interface{}
+	if err := json.Unmarshal(body2, &panelResult); err != nil {
+		return fmt.Errorf("failed to parse panels response: %w", err)
+	}
+	rawButtons, _ := panelResult["records"].([]interface{})
+
+	type PanelButton struct {
+		Panel  string
+		Button string
+		Params string
+	}
+	var allPanelButtons []PanelButton
+	panelSet := make(map[string]bool)
+	for _, raw := range rawButtons {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		panelObj, ok := m["panel"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		panelName, _ := panelObj["name"].(string)
+		buttonName, _ := m["name"].(string)
+		buttonParams, _ := m["params"].(string)
+		allPanelButtons = append(allPanelButtons, PanelButton{Panel: panelName, Button: buttonName, Params: buttonParams})
+		panelSet[panelName] = true
+	}
+	panels := make([]string, 0, len(panelSet))
+	for p := range panelSet {
+		panels = append(panels, p)
+	}
+	sort.Strings(panels)
+
+	// --- Build TUI ---
 	app := tview.NewApplication()
 	pages := tview.NewPages()
 
+	// Header bar showing active mode.
+	header := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
+
+	// Shared result panel.
+	statusView := tview.NewTextView().SetDynamicColors(true).SetWordWrap(true)
+	statusView.SetTitle(" Result ").SetBorder(true)
+
+	// Commands mode widgets.
 	computerList := tview.NewList().ShowSecondaryText(false)
 	computerList.SetTitle(" Computers ").SetBorder(true)
 
 	commandList := tview.NewList().ShowSecondaryText(false)
 	commandList.SetTitle(" Commands ").SetBorder(true)
 
-	statusView := tview.NewTextView().SetDynamicColors(true).SetWordWrap(true)
-	statusView.SetTitle(" Result ").SetBorder(true)
-	statusView.SetText("[grey]Select a computer, then select a command to run it.")
+	// Panels mode widgets.
+	panelList := tview.NewList().ShowSecondaryText(false)
+	panelList.SetTitle(" Panels ").SetBorder(true)
+
+	buttonList := tview.NewList().ShowSecondaryText(false)
+	buttonList.SetTitle(" Buttons ").SetBorder(true)
+
+	// Left column toggles between computer list and panel list.
+	leftPages := tview.NewPages()
+	leftPages.AddPage("computers", computerList, true, true)
+	leftPages.AddPage("panels", panelList, true, false)
+
+	// Right list area toggles between command list and button list.
+	rightListPages := tview.NewPages()
+	rightListPages.AddPage("commands", commandList, true, true)
+	rightListPages.AddPage("panels", buttonList, true, false)
 
 	rightFlex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(commandList, 0, 3, false).
+		AddItem(rightListPages, 0, 3, false).
 		AddItem(statusView, 6, 1, false)
 
-	mainFlex := tview.NewFlex().
-		AddItem(computerList, 30, 0, true).
+	bodyFlex := tview.NewFlex().
+		AddItem(leftPages, 30, 0, true).
 		AddItem(rightFlex, 0, 1, false)
+
+	mainFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(header, 1, 0, false).
+		AddItem(bodyFlex, 0, 1, true)
 
 	pages.AddPage("main", mainFlex, true, true)
 
@@ -430,6 +494,24 @@ func runTUI(token string) error {
 		urlStr := "https://www.triggercmd.com/api/run/triggersave?token=" + token +
 			"&trigger=" + url.QueryEscape(triggerName) +
 			"&computer=" + url.QueryEscape(computerName)
+		if params != "" {
+			urlStr += "&params=" + url.QueryEscape(params)
+		}
+		r, err := http.Get(urlStr)
+		if err != nil {
+			statusView.SetText("[red]Error: " + err.Error())
+			return
+		}
+		defer r.Body.Close()
+		b, _ := ioutil.ReadAll(r.Body)
+		statusView.SetText(string(b))
+	}
+
+	// triggerPanel calls the API to trigger a panel button.
+	triggerPanel := func(panelName, buttonName, params string) {
+		urlStr := "https://www.triggercmd.com/api/panel/trigger?token=" + token +
+			"&panel=" + url.QueryEscape(panelName) +
+			"&button=" + url.QueryEscape(buttonName)
 		if params != "" {
 			urlStr += "&params=" + url.QueryEscape(params)
 		}
@@ -466,7 +548,6 @@ func runTUI(token string) error {
 			app.SetFocus(commandList)
 		})
 
-		// Centre the form as a floating modal.
 		modal := tview.NewFlex().
 			AddItem(nil, 0, 1, false).
 			AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
@@ -487,7 +568,7 @@ func runTUI(token string) error {
 			if cmd.Computer != computerName {
 				continue
 			}
-			c := cmd // capture loop variable
+			c := cmd
 			label := c.Name
 			if c.AllowParams {
 				label = c.Name + "  [grey](accepts parameters)[-]"
@@ -503,21 +584,111 @@ func runTUI(token string) error {
 		app.SetFocus(commandList)
 	}
 
+	// showParamSelectModal presents a list of choices when params is comma-separated.
+	showParamSelectModal := func(panelName, buttonName, paramsList string) {
+		choices := strings.Split(paramsList, ",")
+		for i, c := range choices {
+			choices[i] = strings.TrimSpace(c)
+		}
+
+		optionList := tview.NewList().ShowSecondaryText(false)
+		optionList.SetTitle(" Select parameter ").SetBorder(true)
+		for _, choice := range choices {
+			v := choice
+			optionList.AddItem(v, "", 0, func() {
+				pages.RemovePage("paramsel")
+				app.SetFocus(buttonList)
+				triggerPanel(panelName, buttonName, v)
+			})
+		}
+		optionList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() == tcell.KeyEscape {
+				pages.RemovePage("paramsel")
+				app.SetFocus(buttonList)
+				return nil
+			}
+			return event
+		})
+
+		modal := tview.NewFlex().
+			AddItem(nil, 0, 1, false).
+			AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+				AddItem(nil, 0, 1, false).
+				AddItem(optionList, len(choices)+4, 1, true).
+				AddItem(nil, 0, 1, false), 40, 1, true).
+			AddItem(nil, 0, 1, false)
+
+		pages.AddPage("paramsel", modal, true, true)
+		app.SetFocus(optionList)
+	}
+
+	// updateButtonList repopulates the button list for the chosen panel.
+	updateButtonList := func(panelName string) {
+		buttonList.Clear()
+		statusView.SetText("[grey]Select a button to trigger it.")
+		for _, pb := range allPanelButtons {
+			if pb.Panel != panelName {
+				continue
+			}
+			b := pb
+			label := b.Button
+			if strings.Contains(b.Params, ",") {
+				label = b.Button + "  [grey](" + b.Params + ")[-]"
+			}
+			buttonList.AddItem(label, "", 0, func() {
+				if strings.Contains(b.Params, ",") {
+					showParamSelectModal(b.Panel, b.Button, b.Params)
+				} else {
+					triggerPanel(b.Panel, b.Button, "")
+				}
+			})
+		}
+		app.SetFocus(buttonList)
+	}
+
+	// setMode switches the TUI between commands and panels modes.
+	setMode := func(m string) {
+		if m == "panels" {
+			leftPages.SwitchToPage("panels")
+			rightListPages.SwitchToPage("panels")
+			header.SetText("  F1 Commands   [::b][F2 Panels][-]   Esc: quit / back")
+			statusView.SetText("[grey]Select a panel, then select a button to trigger it.")
+			app.SetFocus(panelList)
+		} else {
+			leftPages.SwitchToPage("computers")
+			rightListPages.SwitchToPage("commands")
+			header.SetText("  [::b][F1 Commands][-]   F2 Panels   Esc: quit / back")
+			statusView.SetText("[grey]Select a computer, then select a command to run it.")
+			app.SetFocus(computerList)
+		}
+	}
+
 	// Populate computer list.
 	for _, name := range computers {
-		n := name // capture loop variable
+		n := name
 		computerList.AddItem(n, "", 0, func() {
 			updateCommandList(n)
 		})
 	}
 
-	// Key bindings: Tab / arrow keys move focus between the two panels.
+	// Populate panel list.
+	for _, name := range panels {
+		n := name
+		panelList.AddItem(n, "", 0, func() {
+			updateButtonList(n)
+		})
+	}
+
+	// Key bindings for computer list.
 	computerList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyTab, tcell.KeyRight:
 			if commandList.GetItemCount() > 0 {
 				app.SetFocus(commandList)
 			}
+			return nil
+		case tcell.KeyF2:
+			setMode("panels")
 			return nil
 		case tcell.KeyEscape:
 			app.Stop()
@@ -526,10 +697,14 @@ func runTUI(token string) error {
 		return event
 	})
 
+	// Key bindings for command list.
 	commandList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyBacktab, tcell.KeyLeft:
 			app.SetFocus(computerList)
+			return nil
+		case tcell.KeyF2:
+			setMode("panels")
 			return nil
 		case tcell.KeyEscape:
 			app.SetFocus(computerList)
@@ -538,11 +713,48 @@ func runTUI(token string) error {
 		return event
 	})
 
-	// Pre-select the first computer.
+	// Key bindings for panel list.
+	panelList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			if buttonList.GetItemCount() > 0 {
+				app.SetFocus(buttonList)
+			}
+			return nil
+		case tcell.KeyF1:
+			setMode("commands")
+			return nil
+		case tcell.KeyEscape:
+			app.Stop()
+			return nil
+		}
+		return event
+	})
+
+	// Key bindings for button list.
+	buttonList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyBacktab, tcell.KeyLeft:
+			app.SetFocus(panelList)
+			return nil
+		case tcell.KeyF1:
+			setMode("commands")
+			return nil
+		case tcell.KeyEscape:
+			app.SetFocus(panelList)
+			return nil
+		}
+		return event
+	})
+
+	// Start in commands mode; pre-populate both sides.
 	if len(computers) > 0 {
 		updateCommandList(computers[0])
-		app.SetFocus(computerList)
 	}
+	if len(panels) > 0 {
+		updateButtonList(panels[0])
+	}
+	setMode("commands")
 
 	return app.SetRoot(pages, true).EnableMouse(true).Run()
 }
