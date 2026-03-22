@@ -10,9 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 	"github.com/urfave/cli"
 )
 
@@ -30,6 +33,7 @@ func UserHomeDir() string {
 func main() {
 	var list bool
 	var pair bool
+	var tui bool
 	var trigger string
 	var computer string
 	var params string
@@ -89,6 +93,11 @@ func main() {
 			Name:        "pair",
 			Usage:       "Login using a pair code",
 			Destination: &pair,
+		},
+		cli.BoolFlag{
+			Name:        "tui",
+			Usage:       "Launch interactive text user interface",
+			Destination: &tui,
 		},
 	}
 
@@ -276,7 +285,11 @@ func main() {
 								fmt.Printf("%s", body)
 							}
 						} else {
-							if trigger == "" {
+							if tui {
+								if err := runTUI(token); err != nil {
+									fmt.Println("TUI error:", err)
+								}
+							} else if trigger == "" {
 								fmt.Println("No trigger specified.  Use --help or -h for help.")
 							} else {
 								t := []string{urlparams, "&trigger=", url.PathEscape(trigger)}
@@ -335,4 +348,201 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// runTUI launches the interactive text user interface.
+func runTUI(token string) error {
+	// Fetch all commands from the API.
+	resp, err := http.Get("https://www.triggercmd.com/api/command/list?token=" + token)
+	if err != nil {
+		return fmt.Errorf("failed to fetch commands: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+	rawCommands, ok := result["records"].([]interface{})
+	if !ok {
+		return fmt.Errorf("unexpected API response format")
+	}
+
+	type Command struct {
+		Name        string
+		Computer    string
+		AllowParams bool
+	}
+
+	var allCommands []Command
+	computerSet := make(map[string]bool)
+	for _, raw := range rawCommands {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		compObj, ok := m["computer"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		compName, _ := compObj["name"].(string)
+		cmdName, _ := m["name"].(string)
+		allowParams := m["allowParams"] == true
+		allCommands = append(allCommands, Command{Name: cmdName, Computer: compName, AllowParams: allowParams})
+		computerSet[compName] = true
+	}
+
+	computers := make([]string, 0, len(computerSet))
+	for c := range computerSet {
+		computers = append(computers, c)
+	}
+	sort.Strings(computers)
+
+	app := tview.NewApplication()
+	pages := tview.NewPages()
+
+	computerList := tview.NewList().ShowSecondaryText(false)
+	computerList.SetTitle(" Computers ").SetBorder(true)
+
+	commandList := tview.NewList().ShowSecondaryText(false)
+	commandList.SetTitle(" Commands ").SetBorder(true)
+
+	statusView := tview.NewTextView().SetDynamicColors(true).SetWordWrap(true)
+	statusView.SetTitle(" Result ").SetBorder(true)
+	statusView.SetText("[grey]Select a computer, then select a command to run it.")
+
+	rightFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(commandList, 0, 3, false).
+		AddItem(statusView, 6, 1, false)
+
+	mainFlex := tview.NewFlex().
+		AddItem(computerList, 30, 0, true).
+		AddItem(rightFlex, 0, 1, false)
+
+	pages.AddPage("main", mainFlex, true, true)
+
+	// triggerCommand calls the API to run a command and shows the result.
+	triggerCommand := func(computerName, triggerName, params string) {
+		urlStr := "https://www.triggercmd.com/api/run/triggersave?token=" + token +
+			"&trigger=" + url.QueryEscape(triggerName) +
+			"&computer=" + url.QueryEscape(computerName)
+		if params != "" {
+			urlStr += "&params=" + url.QueryEscape(params)
+		}
+		r, err := http.Get(urlStr)
+		if err != nil {
+			statusView.SetText("[red]Error: " + err.Error())
+			return
+		}
+		defer r.Body.Close()
+		b, _ := ioutil.ReadAll(r.Body)
+		statusView.SetText(string(b))
+	}
+
+	// showParamModal presents an input form for commands that accept parameters.
+	showParamModal := func(computerName, triggerName string) {
+		var paramsInput string
+
+		form := tview.NewForm()
+		form.AddInputField("Parameters:", "", 46, nil, func(text string) {
+			paramsInput = text
+		})
+		form.AddButton("Run", func() {
+			pages.RemovePage("params")
+			app.SetFocus(commandList)
+			triggerCommand(computerName, triggerName, paramsInput)
+		})
+		form.AddButton("Cancel", func() {
+			pages.RemovePage("params")
+			app.SetFocus(commandList)
+		})
+		form.SetTitle(" Parameters for \"" + triggerName + "\" ").SetBorder(true)
+		form.SetCancelFunc(func() {
+			pages.RemovePage("params")
+			app.SetFocus(commandList)
+		})
+
+		// Centre the form as a floating modal.
+		modal := tview.NewFlex().
+			AddItem(nil, 0, 1, false).
+			AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+				AddItem(nil, 0, 1, false).
+				AddItem(form, 9, 1, true).
+				AddItem(nil, 0, 1, false), 60, 1, true).
+			AddItem(nil, 0, 1, false)
+
+		pages.AddPage("params", modal, true, true)
+		app.SetFocus(form)
+	}
+
+	// updateCommandList repopulates the command list for the chosen computer.
+	updateCommandList := func(computerName string) {
+		commandList.Clear()
+		statusView.SetText("[grey]Select a command to run it.")
+		for _, cmd := range allCommands {
+			if cmd.Computer != computerName {
+				continue
+			}
+			c := cmd // capture loop variable
+			label := c.Name
+			if c.AllowParams {
+				label = c.Name + "  [grey](accepts parameters)[-]"
+			}
+			commandList.AddItem(label, "", 0, func() {
+				if c.AllowParams {
+					showParamModal(c.Computer, c.Name)
+				} else {
+					triggerCommand(c.Computer, c.Name, "")
+				}
+			})
+		}
+		app.SetFocus(commandList)
+	}
+
+	// Populate computer list.
+	for _, name := range computers {
+		n := name // capture loop variable
+		computerList.AddItem(n, "", 0, func() {
+			updateCommandList(n)
+		})
+	}
+
+	// Key bindings: Tab / arrow keys move focus between the two panels.
+	computerList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			if commandList.GetItemCount() > 0 {
+				app.SetFocus(commandList)
+			}
+			return nil
+		case tcell.KeyEscape:
+			app.Stop()
+			return nil
+		}
+		return event
+	})
+
+	commandList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyBacktab, tcell.KeyLeft:
+			app.SetFocus(computerList)
+			return nil
+		case tcell.KeyEscape:
+			app.SetFocus(computerList)
+			return nil
+		}
+		return event
+	})
+
+	// Pre-select the first computer.
+	if len(computers) > 0 {
+		updateCommandList(computers[0])
+		app.SetFocus(computerList)
+	}
+
+	return app.SetRoot(pages, true).EnableMouse(true).Run()
 }
