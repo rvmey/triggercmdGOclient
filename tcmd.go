@@ -372,6 +372,7 @@ func runTUI(token string) error {
 		Name        string
 		Computer    string
 		AllowParams bool
+		Icon        string
 	}
 	var allCommands []Command
 	computerSet := make(map[string]bool)
@@ -387,7 +388,8 @@ func runTUI(token string) error {
 		compName, _ := compObj["name"].(string)
 		cmdName, _ := m["name"].(string)
 		allowParams := m["allowParams"] == true
-		allCommands = append(allCommands, Command{Name: cmdName, Computer: compName, AllowParams: allowParams})
+		icon, _ := m["icon"].(string)
+		allCommands = append(allCommands, Command{Name: cmdName, Computer: compName, AllowParams: allowParams, Icon: icon})
 		computerSet[compName] = true
 	}
 	computers := make([]string, 0, len(computerSet))
@@ -570,8 +572,11 @@ func runTUI(token string) error {
 			}
 			c := cmd
 			label := c.Name
+			if c.Icon != "" {
+				label = c.Icon + " " + c.Name
+			}
 			if c.AllowParams {
-				label = c.Name + "  [grey](accepts parameters)[-]"
+				label = label + "  [grey](accepts parameters)[-]"
 			}
 			commandList.AddItem(label, "", 0, func() {
 				if c.AllowParams {
