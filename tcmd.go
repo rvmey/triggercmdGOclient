@@ -104,12 +104,14 @@ func main() {
 	app.Action = func(c *cli.Context) error {
 		p := filepath.Join(dir, "/.TRIGGERcmdData/token.tkn")
 
-		b, err := ioutil.ReadFile(p) // just pass the file name
-		if err != nil {
-			fmt.Print(err)
+		token := os.Getenv("TRIGGERCMD_TOKEN")
+		if token == "" {
+			b, err := ioutil.ReadFile(p)
+			if err != nil {
+				fmt.Print(err)
+			}
+			token = string(b)
 		}
-
-		token := string(b) // convert content to a 'string'
 
 		if pair {
 			if token == "" {
@@ -182,7 +184,7 @@ func main() {
 			}
 		} else {
 			if token == "" {
-				fmt.Println("\nNo token found.  Install the TRIGGERcmd agent, or use --pair to get a token.")
+				fmt.Println("\nNo token found.  Install the TRIGGERcmd agent, use --pair to get a token, or set the TRIGGERCMD_TOKEN environment variable.")
 			} else {
 				if list {
 					s := []string{"https://www.triggercmd.com/api/command/list?token=", token}
