@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	runewidth "github.com/mattn/go-runewidth"
 	"github.com/rivo/tview"
 	"github.com/urfave/cli"
 )
@@ -575,7 +576,23 @@ func runTUI(token string) error {
 			c := cmd
 			label := c.Name
 			if c.Icon != "" {
-				label = c.Icon + " " + c.Name
+				// Strip U+FE0F so the terminal's emoji-presentation rendering agrees
+				// with tcell's width measurement. Without this, narrow base chars
+				// render 2-wide in the terminal while tcell measures 1, causing
+				// text to shift right and leaving stale characters on deselect.
+				icon := strings.Map(func(r rune) rune {
+					if r == 0xFE0F {
+						return -1
+					}
+					return r
+				}, c.Icon)
+				// All icons that measured < 2 after stripping render 1-wide in the
+				// terminal. Append a space so they occupy the same 2-col slot as
+				// natively wide emoji, keeping icons at col 0 and names aligned.
+				if runewidth.StringWidth(icon) < 2 {
+					icon = icon + " "
+				}
+				label = icon + " " + c.Name
 			}
 			if c.AllowParams {
 				label = label + "  [grey](accepts parameters)[-]"
